@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BHS Trespass Warnings</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 10px;
+        }
+
+```
+    .container {
+        max-width: 400px;
+        margin: 0 auto;
+        background: #8B1538;
+        border-radius: 25px;
+        overflow: hidden;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+
+    .header {
+        background: #8B1538;
+        color: white;
+        padding: 50px 20px 20px;
+    }
+
+    .title {
+        font-size: 18px;
+        font-weight: 600;
+    }
+
+    .content {
+        background: white;
+        border-radius: 25px 25px 0 0;
+        min-height: 70vh;
+        padding: 20px;
+    }
+
+    .trespass-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+    }
+
+    .trespass-card {
+        background: white;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        cursor: pointer;
+        padding: 15px;
+    }
+
+    .card-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .card-id {
+        font-size: 12px;
+        color: #666;
+    }
+
+    .card-status {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 10px;
+        margin-top: 5px;
+        display: inline-block;
+    }
+
+    .status-active {
+        background: #FED7D7;
+        color: #E53E3E;
+    }
+
+    .status-inactive {
+        background: #C6F6D5;
+        color: #38A169;
+    }
+</style>
+```
+
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="title">BHS Trespass Warnings</h1>
+        </div>
+
+```
+    <div class="content">
+        <div class="trespass-grid" id="trespassGrid">
+            <!-- Cards populated by JavaScript -->
+        </div>
+    </div>
+</div>
+
+<script>
+    // Your Google Sheet ID
+    const SHEET_ID = '10z83ZHY9p4uLPcbNwbxZw1x0gaYAE-AWQhsbIvjweKw';
+    
+    let allData = [];
+
+    async function loadData() {
+        try {
+            console.log('Loading data from Google Sheets...');
+            
+            // Use published web page format (works reliably from hosted sites)
+            const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&tq=SELECT%20*`;
+            
+            const response = await fetch(url);
+            const text = await response.text();
+            
+            // Parse Google's JSONP response
+            const jsonpText = text.match(/google\.visualization\.Query\.setResponse\((.*)\);/);
+            if (!jsonpText) throw new Error('Invalid response format');
+            
+            const data = JSON.parse(jsonpText[1]);
+            
+            if (!data.table || !data.table.rows) {
+                throw new Error('No data found in sheet');
+            }
+            
+            // Extract data from Google's format
+            const rows = data.table.rows;
+            const processedData = rows.map(row => {
+                const cells = row.c || [];
+                return {
+                    id: cells[0]?.v || '',
+                    name: cells[1]?.v || '', 
+                    status: cells[2]?.v || 'ACTIVE',
+                    dob: cells[3]?.v || '',
+                    age: cells[4]?.v || '',
+                    association: cells[5]?.v || '',
+                    guardian: cells[6]?.v || '',
+                    expiration: cells[7]?.v || '',
+                    image: cells[8]?.v || '',
+                    location: cells[9]?.v || 'All District Property',
+                    contact: cells[10]?.v || ''
+                };
+            }).filter(item => item.name); // Only rows with names
+            
+            allData = processedData;
+            renderCards(allData);
+            
+            console.log(`Loaded ${allData.length} records from Google Sheets`);
+            
+        } catch (error) {
+            console.error('Error loading data:', error);
+            
+            // Fallback: show sample data if connection fails
+            allData = [
+                {
+                    name: "Paul Stevens",
+                    id: "580541", 
+                    status: "ACTIVE",
+                    dob: "6/25/2008",
+                    age: 15,
+                    association: "Former Staff",
+                    guardian: "Patricia Stevens",
+                    expiration: "n/a",
+                    location: "All BISD property",
+                    contact: "(409) 555-0123"
+                },
+                {
+                    name: "Brina Jackson", 
+                    id: "573404",
+                    status: "INACTIVE",
+                    dob: "2008-03-12",
+                    age: 17,
+                    association: "",
+                    guardian: "Maria Jackson", 
+                    expiration: "2026-01-01",
+                    location: "All BISD property",
+                    contact: "(409) 555-0156"
+                }
+            ];
+            
+            renderCards(allData);
+            
+            document.getElementById('trespassGrid').innerHTML = `
+                <div style="grid-column: 1 / -1; text-align: center; padding: 20px; background: #fff3cd; border-radius: 10px; margin-bottom: 20px;">
+                    <div style="color: #856404; font-size: 14px;">
+                        ⚠️ Using sample data - could not connect to Google Sheets
+                    </div>
+                </div>
+            ` + document.getElementById('trespassGrid').innerHTML;
+        }
+    }
+
+    function renderCards(data) {
+        const grid = document.getElementById('trespassGrid');
+        
+        if (!data || data.length === 0) {
+            grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px;">No data available</div>';
+            return;
+        }
+
+        grid.innerHTML = data.map(person => `
+            <div class="trespass-card" onclick="showDetails(${JSON.stringify(person).replace(/"/g, '&quot;')})">
+                <div class="card-name">${person.name}</div>
+                <div class="card-id">ID: ${person.id}</div>
+                <div class="card-status ${person.status === 'ACTIVE' ? 'status-active' : 'status-inactive'}">
+                    ${person.status}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function showDetails(person) {
+        alert(`Name: ${person.name}
+```
+
+ID: ${person.id}
+Status: ${person.status}
+DOB: ${person.dob}
+Age: ${person.age}
+Guardian: ${person.guardian}
+Contact: ${person.contact}
+Expiration: ${person.expiration}
+Location: ${person.location}`);
+}
+
+```
+    // Load data when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        loadData();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadData, 30000);
+    });
+</script>
+```
+
+</body>
+</html>
