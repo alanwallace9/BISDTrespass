@@ -199,23 +199,19 @@
         url.match(/\/uc\?(?:export=[^&]*&)?id=([^&]+)/);
       return m ? m[1] : null;
     }
-
     function looksLikeDriveId(str) {
       return typeof str === 'string' && /^[A-Za-z0-9_-]{15,}$/.test(str.trim());
     }
-
     function fromImageFormula(str) {
       if (typeof str !== 'string') return null;
       const m = str.match(/^= *IMAGE\s*\(\s*"(https?:\/\/[^"]+)"\s*(?:,.*)?\)\s*$/i);
       return m ? m[1] : null;
     }
-
     function extractUrlFromAnchorFormula(f) {
       if (typeof f !== 'string') return null;
       const m = f.match(/https?:\/\/[^"'>\s]+/i);
       return m ? m[0] : null;
     }
-
     function toAbsoluteIfRelative(s) {
       if (typeof s !== 'string') return '';
       if (/^\/?uploads/i.test(s)) {
@@ -225,21 +221,16 @@
       return s;
     }
 
-    // Accepts a full cell object (with v/f/p) or a string
+    // Convert any sheet cell (object or string) into a usable image URL
     function normalizeImageCell(cell) {
       if (cell && typeof cell === 'object') {
-        // formula
         if (cell.f) {
           const imgFromFormula = fromImageFormula(cell.f);
           if (imgFromFormula) return toDisplayableUrl(imgFromFormula);
           const fromAnchor = extractUrlFromAnchorFormula(cell.f);
           if (fromAnchor) return toDisplayableUrl(fromAnchor);
         }
-        // raw value
-        if (typeof cell.v === 'string' && cell.v.trim()) {
-          return toDisplayableUrl(cell.v);
-        }
-        // hyperlink metadata
+        if (typeof cell.v === 'string' && cell.v.trim()) return toDisplayableUrl(cell.v);
         const link = cell?.p?.link || cell?.p?.href;
         if (typeof link === 'string' && link) return toDisplayableUrl(link);
         return '';
@@ -248,22 +239,43 @@
       return '';
     }
 
+    // Build a robust Drive URL with fallbacks
     function toDisplayableUrl(val) {
       if (!val) return '';
       let s = String(val).trim();
 
-      // Bare Drive ID?
+      // Bare Drive ID or a /file/d/<ID>/ link
       const id = looksLikeDriveId(s) ? s : extractDriveId(s);
       if (id) {
-        // Prefer thumbnail (more reliable for <img>) with big size
-        return `https://drive.google.com/thumbnail?id=${id}&sz=w1200`;
+        // Return the first candidate; others are stored as fallbacks on the <img>
+        return `gdrive:${id}`;
       }
 
-      // Site-relative uploads
+      // Site-relative uploads => make absolute
       s = toAbsoluteIfRelative(s);
 
       if (/^https?:\/\/.+/i.test(s)) return s;
       return '';
+    }
+
+    // given a Drive ID, return preferred + fallback urls
+    function driveUrls(id) {
+      return [
+        `https://drive.google.com/thumbnail?id=${id}&sz=w1200`,
+        `https://drive.google.com/uc?export=view&id=${id}`,
+        `https://drive.google.com/uc?export=download&id=${id}`,
+        `https://lh3.googleusercontent.com/d/${id}=w1200`
+      ];
+    }
+
+    // Parse a "displayable" url, and if it's gdrive:<id>, expand to first URL
+    function expandIfDrive(url) {
+      if (url.startsWith('gdrive:')) {
+        const id = url.slice(7);
+        const [first] = driveUrls(id);
+        return { src: first, fallbacks: driveUrls(id).slice(1) };
+      }
+      return { src: url, fallbacks: [] };
     }
 
     function pad2(n){ return String(n).padStart(2,'0'); }
@@ -271,35 +283,23 @@
 
     function fmtDate(value) {
       if (value == null || value === '') return '';
-
       if (typeof value === 'string' && /^Date\(\d{4},\d{1,2},\d{1,2}\)$/.test(value)) {
         const m = value.match(/^Date\((\d{4}),(\d{1,2}),(\d{1,2})\)$/);
         const y = Number(m[1]); const mo0 = Number(m[2]); const d = Number(m[3]);
         return mmddyyyy(new Date(y, mo0, d));
       }
-
       if (!isNaN(value)) {
         const serial = Number(value);
         const epoch = new Date(Date.UTC(1899, 11, 30));
         const d = new Date(epoch.getTime() + serial * 86400000);
         return mmddyyyy(d);
       }
-
       const s = String(value).trim();
-
       let m = s.match(/^(\d{4})[,\-\/](\d{1,2})[,\-\/](\d{1,2})$/);
       if (m) return mmddyyyy(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-
       m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-      if (m) {
-        let y = Number(m[3]);
-        if (y < 100) y += 2000;
-        return mmddyyyy(new Date(y, Number(m[1]) - 1, Number(m[2])));
-      }
-
-      const d2 = new Date(s);
-      if (!isNaN(d2)) return mmddyyyy(d2);
-
+      if (m) { let y = Number(m[3]); if (y < 100) y += 2000; return mmddyyyy(new Date(y, Number(m[1]) - 1, Number(m[2]))); }
+      const d2 = new Date(s); if (!isNaN(d2)) return mmddyyyy(d2);
       return s;
     }
 
@@ -311,19 +311,23 @@
     }
 
     function initialsFrom(name) {
-      return (name || '')
-        .split(' ')
-        .filter(Boolean)
-        .slice(0,2)
-        .map(s => s[0]?.toUpperCase())
-        .join('') || '—';
+      return (name || '').split(' ').filter(Boolean).slice(0,2).map(s => s[0]?.toUpperCase()).join('') || '—';
     }
 
-    function imgFallback(el, initials) {
-      const ph = document.createElement('div');
-      ph.className = 'avatar avatar--placeholder';
-      ph.textContent = initials || '—';
-      el.replaceWith(ph);
+    function imgFallbackToNext(el, initials) {
+      const list = (el.dataset.fallbacks || '').split('|').filter(Boolean);
+      if (list.length === 0) {
+        // no more: swap to placeholder
+        const ph = document.createElement('div');
+        ph.className = 'avatar avatar--placeholder';
+        ph.textContent = initials || '—';
+        el.replaceWith(ph);
+        return;
+      }
+      // try the next fallback
+      const next = list.shift();
+      el.dataset.fallbacks = list.join('|');
+      el.src = next;
     }
 
     // ========= Data loader =========
@@ -362,12 +366,10 @@
           };
         });
 
-        // keep all rows except the obvious header row or completely empty rows
-        allData = processed.filter(row => {
-          const isHeader = String(row.id).toLowerCase() === 'id' && String(row.name).toLowerCase() === 'name';
-          const isEmpty = !row.id && !row.name && !row.status && !row.dob && !row.age && !row.warning_expires;
-          return !isHeader && !isEmpty;
-        });
+        // keep all rows except the literal header row
+        allData = processed.filter(row =>
+          !(String(row.id).toLowerCase()==='id' && String(row.name).toLowerCase()==='name')
+        );
 
         applyFilters();
       } catch (e) {
@@ -406,14 +408,20 @@
 
       grid.innerHTML = data.map(person => {
         const safe = encodeURIComponent(JSON.stringify(person));
-
-        // ONE image: Image (I) → Picture (M) → placeholder
-        const imgSrc = person.image || person.picture || '';
+        const imgCandidate = person.image || person.picture || '';
+        let imgInfo = { src: '', fallbacks: [] };
+        if (imgCandidate) {
+          imgInfo = imgCandidate.startsWith('gdrive:')
+            ? expandIfDrive(imgCandidate)
+            : { src: imgCandidate, fallbacks: [] };
+        }
         const initials = initialsFrom(person.name);
-        const avatarHtml = imgSrc
-          ? `<img class="avatar" src="${imgSrc}" alt="${person.name}" loading="lazy"
+
+        const avatarHtml = imgInfo.src
+          ? `<img class="avatar" src="${imgInfo.src}" alt="${person.name}" loading="lazy"
                  referrerpolicy="no-referrer"
-                 onerror="imgFallback(this, '${initials}')" />`
+                 data-fallbacks="${imgInfo.fallbacks.join('|')}"
+                 onerror="imgFallbackToNext(this, '${initials}')" />`
           : `<div class="avatar avatar--placeholder">${initials}</div>`;
 
         const status = statusKey(person.status);
@@ -445,7 +453,22 @@
 
       title.textContent = p.name || 'Details';
 
-      const primaryImg = p.image || p.picture || '';
+      // Build primary image with fallbacks (same logic as card)
+      const imgCandidate = p.image || p.picture || '';
+      let imgHTML = '';
+      if (imgCandidate) {
+        let imgInfo = { src: '', fallbacks: [] };
+        if (imgCandidate.startsWith('gdrive:')) {
+          imgInfo = expandIfDrive(imgCandidate);
+        } else {
+          imgInfo = { src: imgCandidate, fallbacks: [] };
+        }
+        imgHTML = `<img class="avatar" src="${imgInfo.src}" alt="${p.name}"
+                      style="width:120px;height:120px; object-fit:cover; border-radius:12px;"
+                      referrerpolicy="no-referrer"
+                      data-fallbacks="${imgInfo.fallbacks.join('|')}"
+                      onerror="imgFallbackToNext(this, '${initialsFrom(p.name)}')" />`;
+      }
 
       const rows = [
         ['Name', p.name],
@@ -464,7 +487,7 @@
 
       body.innerHTML = `
         <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
-          ${primaryImg ? `<img class="avatar" src="${primaryImg}" alt="${p.name}" style="width:120px;height:120px; object-fit:cover; border-radius:12px;" onerror="this.style.display='none';">` : ''}
+          ${imgHTML}
         </div>
         ${rows.map(([k,v]) => `
           <div class="detail-row">
@@ -500,4 +523,3 @@
   </script>
 </body>
 </html>
-
