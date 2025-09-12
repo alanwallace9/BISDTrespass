@@ -5,45 +5,66 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>BHS Trespass Warnings</title>
   <style>
+    :root { --brand:#8B1538; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
       padding: 10px;
     }
-
     .container {
-      max-width: 400px;
+      max-width: 480px;
       margin: 0 auto;
-      background: #8B1538;
+      background: var(--brand);
       border-radius: 25px;
       overflow: hidden;
       box-shadow: 0 20px 40px rgba(0,0,0,0.3);
     }
-
-    .header {
-      background: #8B1538;
-      color: white;
-      padding: 50px 20px 20px;
-    }
-
-    .title {
-      font-size: 18px;
-      font-weight: 600;
-    }
+    .header { background: var(--brand); color: white; padding: 28px 20px 16px; }
+    .title { font-size: 18px; font-weight: 600; margin: 0; }
 
     .content {
       background: white;
       border-radius: 25px 25px 0 0;
       min-height: 70vh;
-      padding: 20px;
+      padding: 16px;
     }
 
+    /* Controls */
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .search {
+      display: flex; gap: 8px;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 8px 10px;
+    }
+    .search input {
+      border: none; outline: none; background: transparent; width: 100%;
+      font-size: 14px;
+    }
+    .status-select {
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+    .meta { font-size: 12px; color: #6b7280; margin: 6px 2px 12px; }
+
+    /* Grid & cards */
     .trespass-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 15px;
+      gap: 12px;
     }
+    @media (max-width: 420px) { .trespass-grid { grid-template-columns: 1fr; } }
 
     .trespass-card {
       background: white;
@@ -51,8 +72,11 @@
       overflow: hidden;
       box-shadow: 0 4px 12px rgba(0,0,0,0.1);
       cursor: pointer;
-      padding: 15px;
+      padding: 12px;
+      border: 1px solid #f3f4f6;
+      transition: transform .06s ease;
     }
+    .trespass-card:active { transform: scale(0.99); }
 
     .card-top {
       display: grid;
@@ -61,77 +85,66 @@
       align-items: center;
       margin-bottom: 8px;
     }
-
     .avatar {
-      width: 48px;
-      height: 48px;
-      border-radius: 8px;   /* use 50% for circle */
+      width: 48px; height: 48px;
+      border-radius: 8px; /* use 50% for circle */
       object-fit: cover;
       background: #f3f4f6;
+      display: block;
     }
-
     .avatar--placeholder {
-      width: 48px;
-      height: 48px;
+      width: 48px; height: 48px;
       border-radius: 8px;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
-      color: #666;
+      display: grid; place-items: center;
+      font-size: 12px; color: #666;
       background: #f3f4f6;
     }
-
-    .card-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: #333;
-    }
-
-    .card-id {
-      font-size: 12px;
-      color: #666;
-    }
+    .card-name { font-size: 14px; font-weight: 600; color: #111827; }
+    .card-id { font-size: 12px; color: #6b7280; }
+    .card-sub { font-size: 12px; color: #6b7280; }
 
     .card-status {
       font-size: 10px;
       padding: 2px 6px;
       border-radius: 10px;
-      margin-top: 5px;
+      margin-top: 6px;
       display: inline-block;
+      user-select: none;
     }
-
-    .status-active {
-      background: #FED7D7;
-      color: #E53E3E;
-    }
-
-    .status-inactive {
-      background: #C6F6D5;
-      color: #38A169;
-    }
+    .status-active  { background: #FED7D7; color: #B91C1C; }
+    .status-inactive{ background: #C6F6D5; color: #166534; }
 
     .note {
       grid-column: 1 / -1;
       text-align: center;
-      padding: 12px;
+      padding: 10px;
       border-radius: 10px;
       margin-bottom: 10px;
       background: #eef2ff;
       color: #3730a3;
       font-size: 12px;
     }
+    .empty { grid-column: 1 / -1; text-align: center; padding: 28px; color: #6b7280; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1 class="title">BHS Trespass Warnings</h1>
-    </div>
+    <div class="header"><h1 class="title">BHS Trespass Warnings</h1></div>
 
     <div class="content">
-      <div class="trespass-grid" id="trespassGrid">
-        <!-- Cards populated by JavaScript -->
+      <div class="controls">
+        <div class="search" aria-label="Search">
+          <input id="searchInput" type="search" placeholder="Search name, ID, guardian…" />
+        </div>
+        <select id="statusSelect" class="status-select" aria-label="Status filter">
+          <option value="ALL">All</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Inactive</option>
+        </select>
       </div>
+      <div class="meta"><span id="resultCount">0</span> results</div>
+
+      <div class="trespass-grid" id="trespassGrid"></div>
     </div>
   </div>
 
@@ -139,34 +152,45 @@
     // =========================
     // CONFIG
     // =========================
-    // Make sure the sheet is "Published to the web" (File → Share → Publish to web)
-    // and the image files (if using Google Drive) are shared "Anyone with the link → Viewer".
+    // Ensure the Sheet is "File → Share → Publish to web".
+    // Drive images must be shared "Anyone with the link".
     const SHEET_ID = '10z83ZHY9p4uLPcbNwbxZw1x0gaYAE-AWQhsbIvjweKw';
-    const GID = '0'; // change if your data lives on another tab; copy its gid from the sheet URL
+    const GID = '0'; // change if your data is on another tab (copy gid from sheet URL)
 
     let allData = [];
+    let currentFiltered = [];
 
     // -------------------------
     // Image helpers
     // -------------------------
     function extractDriveId(url) {
       if (!url) return null;
+      // handle /file/d/<id>/view, ?id=<id>, /uc?export=view&id=<id>
       const m =
-        url.match(/\/file\/d\/([^/]+)/) ||       // /file/d/<id>/view
-        url.match(/[?&]id=([^&]+)/) ||           // ?id=<id>
-        url.match(/\/uc\?(?:export=[^&]*&)?id=([^&]+)/); // /uc?export=view&id=<id>
+        url.match(/\/file\/d\/([^/]+)/) ||
+        url.match(/[?&]id=([^&]+)/) ||
+        url.match(/\/uc\?(?:export=[^&]*&)?id=([^&]+)/);
       return m ? m[1] : null;
     }
 
-    function normalizeImageUrl(url) {
-      if (!url || typeof url !== 'string') return '';
-      const trimmed = url.trim();
+    function fromImageFormula(cell) {
+      // Extract URL from =IMAGE("https://...") or =IMAGE("...";2;...) etc.
+      if (typeof cell !== 'string') return null;
+      const m = cell.match(/^= *IMAGE\s*\(\s*"(https?:\/\/[^"]+)"\s*(?:,.*)?\)\s*$/i);
+      return m ? m[1] : null;
+    }
+
+    function normalizeImageUrl(val) {
+      if (!val) return '';
+      const fromImg = fromImageFormula(val);
+      if (fromImg) val = fromImg;
+
+      if (typeof val !== 'string') return '';
+      const trimmed = val.trim();
 
       // Convert Google Drive share links to direct-view
       const driveId = extractDriveId(trimmed);
-      if (driveId) {
-        return `https://drive.google.com/uc?export=view&id=${driveId}`;
-      }
+      if (driveId) return `https://drive.google.com/uc?export=view&id=${driveId}`;
 
       // Accept direct http(s) image URLs
       if (/^https?:\/\/.+/i.test(trimmed)) return trimmed;
@@ -180,13 +204,8 @@
     async function loadData() {
       const grid = document.getElementById('trespassGrid');
       try {
-        console.log('Loading data from Google Sheets…');
         const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-        const params = new URLSearchParams({
-          tqx: 'out:json',
-          tq: 'select *',
-          gid: GID
-        });
+        const params = new URLSearchParams({ tqx: 'out:json', tq: 'select *', gid: GID });
         const url = `${base}?${params.toString()}`;
 
         const response = await fetch(url, { cache: 'no-store' });
@@ -197,9 +216,7 @@
         if (!match) throw new Error('Unexpected response format from Google Sheets');
         const payload = JSON.parse(match[1]);
 
-        if (!payload.table || !payload.table.rows) {
-          throw new Error('No table data found in sheet');
-        }
+        if (!payload.table || !payload.table.rows) throw new Error('No table data found in sheet');
 
         // Map rows -> objects (adjust indices to your column order)
         const rows = payload.table.rows;
@@ -214,15 +231,14 @@
             association: c[5]?.v ?? '',
             guardian: c[6]?.v ?? '',
             expiration: c[7]?.v ?? '',
-            image: normalizeImageUrl(c[8]?.v ?? ''),     // <-- images supported here
+            image: normalizeImageUrl(c[8]?.v ?? ''), // <-- images supported here
             location: c[9]?.v ?? 'All District Property',
             contact: c[10]?.v ?? ''
           };
         }).filter(r => r.name);
 
         allData = processed;
-        renderCards(allData);
-        console.log(`Loaded ${allData.length} records.`);
+        applyFilters(); // renders too
       } catch (err) {
         console.error('Error loading data:', err);
 
@@ -232,12 +248,39 @@
           { name: "Brina Jackson", id: "573404", status: "INACTIVE", dob: "2008-03-12", age: 17, association: "", guardian: "Maria Jackson", expiration: "2026-01-01", location: "All BISD property", contact: "(409) 555-0156", image: "" }
         ];
         allData = fallback;
-
-        renderCards(allData);
         grid.insertAdjacentHTML('afterbegin',
-          `<div class="note">⚠️ Using sample data — could not load Google Sheet. Check publishing and sheet ID/gid.</div>`
+          `<div class="note">⚠️ Using sample data — could not load Google Sheet. Check “Publish to web”, sheet ID, and gid.</div>`
         );
+        applyFilters();
       }
+    }
+
+    // -------------------------
+    // Filters (search + status)
+    // -------------------------
+    function applyFilters() {
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      const status = document.getElementById('statusSelect').value; // ALL | ACTIVE | INACTIVE
+
+      currentFiltered = allData.filter(p => {
+        const statusOk = (status === 'ALL') ? true : p.status === status;
+        if (!statusOk) return false;
+
+        if (!q) return true;
+        const hay = [p.name, p.id, p.association, p.guardian, p.location, p.contact]
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      });
+
+      renderCards(currentFiltered);
+      document.getElementById('resultCount').textContent = currentFiltered.length;
+    }
+
+    // lightweight debounce for search input
+    function debounce(fn, ms = 200) {
+      let t;
+      return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
     }
 
     // -------------------------
@@ -246,7 +289,7 @@
     function renderCards(data) {
       const grid = document.getElementById('trespassGrid');
       if (!data || data.length === 0) {
-        grid.innerHTML = '<div style="grid-column:1 / -1; text-align:center; padding:40px;">No data available</div>';
+        grid.innerHTML = '<div class="empty">No matching records</div>';
         return;
       }
 
@@ -259,9 +302,9 @@
           .map(s => s[0]?.toUpperCase())
           .join('') || '—';
 
-        // Image tag (if present) + a built-in placeholder with initials
         const imgTag = person.image
           ? `<img class="avatar" src="${person.image}" alt="${person.name}" loading="lazy"
+                 referrerpolicy="no-referrer"
                  onerror="this.onerror=null;this.replaceWith(this.nextElementSibling.cloneNode(true));" />`
           : '';
 
@@ -274,6 +317,7 @@
               <div>
                 <div class="card-name">${person.name}</div>
                 <div class="card-id">ID: ${person.id}</div>
+                <div class="card-sub">${person.association || '&nbsp;'}</div>
               </div>
             </div>
             <div class="card-status ${person.status === 'ACTIVE' ? 'status-active' : 'status-inactive'}">
@@ -295,6 +339,7 @@ ID: ${person.id}
 Status: ${person.status}
 DOB: ${person.dob}
 Age: ${person.age}
+Association: ${person.association}
 Guardian: ${person.guardian}
 Contact: ${person.contact}
 Expiration: ${person.expiration}
@@ -305,9 +350,14 @@ Location: ${person.location}`);
     // Boot
     // -------------------------
     document.addEventListener('DOMContentLoaded', () => {
+      const searchInput = document.getElementById('searchInput');
+      const statusSelect = document.getElementById('statusSelect');
+      searchInput.addEventListener('input', debounce(applyFilters, 120));
+      statusSelect.addEventListener('change', applyFilters);
+
       loadData();
-      // Auto-refresh every 30 seconds
-      setInterval(loadData, 30000);
+      // Auto-refresh every 60s (keeps filters intact)
+      setInterval(loadData, 60000);
     });
   </script>
 </body>
