@@ -201,7 +201,6 @@
     }
 
     function looksLikeDriveId(str) {
-      // Many of your cells have only the ID (letters/numbers/_/- ~ 20-60 chars)
       return typeof str === 'string' && /^[A-Za-z0-9_-]{15,}$/.test(str.trim());
     }
 
@@ -218,7 +217,6 @@
     }
 
     function toAbsoluteIfRelative(s) {
-      // If it starts with /uploads or uploads/, assume site-relative
       if (typeof s !== 'string') return '';
       if (/^\/?uploads/i.test(s)) {
         const path = s.replace(/^\//,'');
@@ -230,18 +228,18 @@
     // Accepts a full cell object (with v/f/p) or a string
     function normalizeImageCell(cell) {
       if (cell && typeof cell === 'object') {
-        // 1) formula
+        // formula
         if (cell.f) {
           const imgFromFormula = fromImageFormula(cell.f);
           if (imgFromFormula) return toDisplayableUrl(imgFromFormula);
           const fromAnchor = extractUrlFromAnchorFormula(cell.f);
           if (fromAnchor) return toDisplayableUrl(fromAnchor);
         }
-        // 2) raw value
+        // raw value
         if (typeof cell.v === 'string' && cell.v.trim()) {
           return toDisplayableUrl(cell.v);
         }
-        // 3) hyperlink metadata
+        // hyperlink metadata
         const link = cell?.p?.link || cell?.p?.href;
         if (typeof link === 'string' && link) return toDisplayableUrl(link);
         return '';
@@ -254,14 +252,12 @@
       if (!val) return '';
       let s = String(val).trim();
 
-      // Bare Drive ID
-      if (looksLikeDriveId(s)) {
-        return `https://drive.google.com/uc?export=view&id=${s}`;
+      // Bare Drive ID?
+      const id = looksLikeDriveId(s) ? s : extractDriveId(s);
+      if (id) {
+        // Prefer thumbnail (more reliable for <img>) with big size
+        return `https://drive.google.com/thumbnail?id=${id}&sz=w1200`;
       }
-
-      // Convert common Drive link shapes
-      const driveId = extractDriveId(s);
-      if (driveId) return `https://drive.google.com/uc?export=view&id=${driveId}`;
 
       // Site-relative uploads
       s = toAbsoluteIfRelative(s);
@@ -366,8 +362,12 @@
           };
         });
 
-        // keep all rows except the literal header row
-        allData = processed.filter(row => !(String(row.id).toLowerCase()==='id' && String(row.name).toLowerCase()==='name'));
+        // keep all rows except the obvious header row or completely empty rows
+        allData = processed.filter(row => {
+          const isHeader = String(row.id).toLowerCase() === 'id' && String(row.name).toLowerCase() === 'name';
+          const isEmpty = !row.id && !row.name && !row.status && !row.dob && !row.age && !row.warning_expires;
+          return !isHeader && !isEmpty;
+        });
 
         applyFilters();
       } catch (e) {
@@ -500,3 +500,4 @@
   </script>
 </body>
 </html>
+
