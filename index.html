@@ -137,7 +137,7 @@
       padding: 14px 16px; background: var(--brand); color: #fff;
     }
     .modal-body { padding: 16px; }
-    .detail-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; padding: 6px 0; font-size: 14px; }
+    .detail-row { display: grid; grid-template-columns: 160px 1fr; gap: 8px; padding: 6px 0; font-size: 14px; }
     .detail-key { color: #6b7280; }
     .modal-actions { padding: 12px 16px; display: flex; justify-content: flex-end; gap: 8px; background: #f9fafb; }
     .btn {
@@ -215,36 +215,54 @@
       if (/^https?:\/\/.+/i.test(trimmed)) return trimmed;
       return '';
     }
+
+    function pad2(n){ return String(n).padStart(2,'0'); }
+    function mmddyyyy(d){
+      return `${pad2(d.getMonth()+1)}/${pad2(d.getDate())}/${d.getFullYear()}`;
+    }
     function fmtDate(value) {
-      // Accepts Google serials, ISO strings, or already-formatted strings
       if (value == null || value === '') return '';
-      // If number-like, treat as Google serial date
+      // Numeric (Google serial)
       if (!isNaN(value)) {
         const serial = Number(value);
-        // Google Sheets serial date origin (Dec 30, 1899)
-        const epoch = new Date(Date.UTC(1899, 11, 30));
-        const ms = serial * 24 * 60 * 60 * 1000;
+        const epoch = new Date(Date.UTC(1899, 11, 30)); // Sheets origin
+        const ms = serial * 86400000;
         const d = new Date(epoch.getTime() + ms);
         return mmddyyyy(d);
       }
-      // Try parsing common strings
-      const d2 = new Date(value);
+      const s = String(value).trim();
+
+      // YYYY,MM,DD or YYYY-MM-DD or YYYY/MM/DD
+      let m = s.match(/^(\d{4})[,\-\/](\d{1,2})[,\-\/](\d{1,2})$/);
+      if (m) {
+        const y = Number(m[1]), mo = Number(m[2])-1, da = Number(m[3]);
+        const d = new Date(y, mo, da);
+        return mmddyyyy(d);
+      }
+
+      // MM/DD/YYYY or M/D/YY(YY)
+      m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+      if (m) {
+        let y = Number(m[3]);
+        if (y < 100) y += 2000;
+        const d = new Date(y, Number(m[1])-1, Number(m[2]));
+        return mmddyyyy(d);
+      }
+
+      // Fallback to Date()
+      const d2 = new Date(s);
       if (!isNaN(d2)) return mmddyyyy(d2);
-      return value; // fallback
+
+      return s; // leave as-is if unparsable
     }
-    function mmddyyyy(d) {
-      const mm = String(d.getMonth()+1).padStart(2,'0');
-      const dd = String(d.getDate()).padStart(2,'0');
-      const yyyy = String(d.getFullYear());
-      return `${mm}/${dd}/${yyyy}`;
-    }
+
     function statusKey(raw) {
-      // keep simple mapping so filter works even if sheet has lowercase, etc.
       const t = (raw || '').toString().trim().toUpperCase();
       if (t.startsWith('ACTIVE')) return 'ACTIVE';
       if (t.startsWith('INACTIVE')) return 'INACTIVE';
       return t || 'ACTIVE';
     }
+
     function initialsFrom(name) {
       return (name || '')
         .split(' ')
@@ -268,31 +286,33 @@
         const payload = JSON.parse(match[1]);
         const rows = (payload.table && payload.table.rows) ? payload.table.rows : [];
 
-        // Fixed indices per your header order
+        // Fixed indices per your header order (see top)
         const processed = rows.map(r => {
           const c = r.c || [];
-          const safe = i => (c[i]?.v ?? '');
+          const val = i => (c[i]?.v ?? '');
           return {
-            id: safe(0),
-            name: safe(1),
-            status: statusKey(safe(2)),
-            status_raw: safe(2),
-            dob: safe(3),
-            age: safe(4),
-            association: safe(5),
-            guardian: safe(6),
-            warning_expires: safe(7),
-            image: normalizeImageUrl(c[8]?.v ?? ''), // column I
-            trespassed_from: safe(9),
-            contact: safe(10),
-            current_school: safe(11),
-            picture: normalizeImageUrl(c[12]?.v ?? '')
+            id: val(0),
+            name: val(1),
+            status: statusKey(val(2)),
+            status_raw: val(2),
+            dob: val(3),
+            age: val(4),
+            association: val(5),
+            guardian: val(6),
+            warning_expires: val(7),
+            image: normalizeImageUrl(c[8]?.v ?? ''),
+            trespassed_from: val(9),
+            contact: val(10),
+            current_school: val(11),
+            picture: normalizeImageUrl(c[12]?.v ?? ''),
+            guardian_contact: (c[13]?.v ?? '')  // optional new column; fine if blank
           };
-        })
-        // Remove the header row if it leaked in as data (e.g., if the sheet has merged header rows)
-        .filter(row => row.id !== 'id' && row.name !== 'Name');
+        });
 
-        allData = processed;
+        // Drop just the obvious header row if it sneaks in,
+        // keep rows even if they have missing fields.
+        allData = processed.filter(row => !(String(row.id).toLowerCase()==='id' && String(row.name).toLowerCase()==='name'));
+
         applyFilters();
       } catch (e) {
         console.error(e);
@@ -330,20 +350,23 @@
 
       grid.innerHTML = data.map(person => {
         const safe = encodeURIComponent(JSON.stringify(person));
-        const initials = initialsFrom(person.name);
-        const imgTag = person.image
-          ? `<img class="avatar" src="${person.image}" alt="${person.name}" loading="lazy"
+
+        // ONE visual avatar: use Image (col I) OR fallback to Picture (col M); else show initials placeholder
+        const imgSrc = person.image || person.picture || '';
+        const avatarHtml = imgSrc
+          ? `<img class="avatar" src="${imgSrc}" alt="${person.name}" loading="lazy"
                  referrerpolicy="no-referrer"
-                 onerror="this.onerror=null;this.replaceWith(this.nextElementSibling.cloneNode(true));" />`
-          : '';
-        const placeholder = `<div class="avatar avatar--placeholder">${initials}</div>`;
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';" />
+             <div class="avatar--placeholder" style="display:none;">${initialsFrom(person.name)}</div>`
+          : `<div class="avatar--placeholder">${initialsFrom(person.name)}</div>`;
+
         const status = statusKey(person.status);
         const badgeClass = status === 'ACTIVE' ? 'badge-active' : 'badge-inactive';
 
         return `
           <div class="trespass-card" onclick="showDetails('${safe}')">
             <div class="card-top">
-              ${imgTag}${placeholder}
+              ${avatarHtml}
               <div>
                 <div class="card-name">${person.name || '—'}</div>
                 <div class="card-line">ID: ${person.id || '—'}</div>
@@ -366,6 +389,8 @@
 
       title.textContent = p.name || 'Details';
 
+      const primaryImg = p.image || p.picture || '';
+
       const rows = [
         ['Name', p.name],
         ['ID', p.id],
@@ -374,6 +399,7 @@
         ['Age', p.age],
         ['Association', p.association],
         ['Guardian', p.guardian],
+        ['Guardian Contact', p.guardian_contact || ''],      // new field
         ['Warning Expires', fmtDate(p.warning_expires)],
         ['Trespassed From', p.trespassed_from],
         ['Contact', p.contact],
@@ -382,8 +408,7 @@
 
       body.innerHTML = `
         <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
-          ${p.image ? `<img class="avatar" src="${p.image}" alt="${p.name}" style="width:72px;height:72px;">` : ''}
-          ${p.picture ? `<img class="avatar" src="${p.picture}" alt="${p.name}" style="width:72px;height:72px;">` : ''}
+          ${primaryImg ? `<img class="avatar" src="${primaryImg}" alt="${p.name}" style="width:72px;height:72px; object-fit:cover;">` : ''}
         </div>
         ${rows.map(([k,v]) => `
           <div class="detail-row">
@@ -404,10 +429,7 @@
     document.addEventListener('DOMContentLoaded', () => {
       const searchInput = document.getElementById('searchInput');
       const statusSelect = document.getElementById('statusSelect');
-      searchInput.addEventListener('input', () => {
-        // debounce not strictly necessary here; small dataset
-        applyFilters();
-      });
+      searchInput.addEventListener('input', () => applyFilters());
       statusSelect.addEventListener('change', applyFilters);
 
       document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
@@ -417,7 +439,8 @@
       });
 
       loadData();
-      setInterval(loadData, 60000); // optional refresh
+      // optional: refresh periodically
+      setInterval(loadData, 60000);
     });
   </script>
 </body>
