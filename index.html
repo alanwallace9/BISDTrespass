@@ -11,6 +11,7 @@
       min-height: 100vh;
       padding: 10px;
     }
+
     .container {
       max-width: 400px;
       margin: 0 auto;
@@ -19,23 +20,31 @@
       overflow: hidden;
       box-shadow: 0 20px 40px rgba(0,0,0,0.3);
     }
+
     .header {
       background: #8B1538;
       color: white;
       padding: 50px 20px 20px;
     }
-    .title { font-size: 18px; font-weight: 600; }
+
+    .title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
     .content {
       background: white;
       border-radius: 25px 25px 0 0;
       min-height: 70vh;
       padding: 20px;
     }
+
     .trespass-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 15px;
     }
+
     .trespass-card {
       background: white;
       border-radius: 12px;
@@ -44,33 +53,130 @@
       cursor: pointer;
       padding: 15px;
     }
-    .card-name { font-size: 14px; font-weight: 600; color: #333; }
-    .card-id { font-size: 12px; color: #666; }
-    .card-status { font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-top: 5px; display: inline-block; }
-    .status-active { background: #FED7D7; color: #E53E3E; }
-    .status-inactive { background: #C6F6D5; color: #38A169; }
+
+    .card-top {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;   /* use 50% for circle */
+      object-fit: cover;
+      background: #f3f4f6;
+    }
+
+    .avatar--placeholder {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      color: #666;
+      background: #f3f4f6;
+    }
+
+    .card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .card-id {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .card-status {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-top: 5px;
+      display: inline-block;
+    }
+
+    .status-active {
+      background: #FED7D7;
+      color: #E53E3E;
+    }
+
+    .status-inactive {
+      background: #C6F6D5;
+      color: #38A169;
+    }
+
     .note {
       grid-column: 1 / -1;
-      text-align: center; padding: 12px; border-radius: 10px; margin-bottom: 10px;
-      background: #eef2ff; color: #3730a3; font-size: 12px;
+      text-align: center;
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      background: #eef2ff;
+      color: #3730a3;
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header"><h1 class="title">BHS Trespass Warnings</h1></div>
+    <div class="header">
+      <h1 class="title">BHS Trespass Warnings</h1>
+    </div>
+
     <div class="content">
-      <div id="trespassGrid" class="trespass-grid"></div>
+      <div class="trespass-grid" id="trespassGrid">
+        <!-- Cards populated by JavaScript -->
+      </div>
     </div>
   </div>
 
   <script>
-    // CONFIG — Make sure the sheet is "Published to the web" (File → Share → Publish to web)
+    // =========================
+    // CONFIG
+    // =========================
+    // Make sure the sheet is "Published to the web" (File → Share → Publish to web)
+    // and the image files (if using Google Drive) are shared "Anyone with the link → Viewer".
     const SHEET_ID = '10z83ZHY9p4uLPcbNwbxZw1x0gaYAE-AWQhsbIvjweKw';
-    const GID = '0'; // change if your data is not on the first sheet
+    const GID = '0'; // change if your data lives on another tab; copy its gid from the sheet URL
 
     let allData = [];
 
+    // -------------------------
+    // Image helpers
+    // -------------------------
+    function extractDriveId(url) {
+      if (!url) return null;
+      const m =
+        url.match(/\/file\/d\/([^/]+)/) ||       // /file/d/<id>/view
+        url.match(/[?&]id=([^&]+)/) ||           // ?id=<id>
+        url.match(/\/uc\?(?:export=[^&]*&)?id=([^&]+)/); // /uc?export=view&id=<id>
+      return m ? m[1] : null;
+    }
+
+    function normalizeImageUrl(url) {
+      if (!url || typeof url !== 'string') return '';
+      const trimmed = url.trim();
+
+      // Convert Google Drive share links to direct-view
+      const driveId = extractDriveId(trimmed);
+      if (driveId) {
+        return `https://drive.google.com/uc?export=view&id=${driveId}`;
+      }
+
+      // Accept direct http(s) image URLs
+      if (/^https?:\/\/.+/i.test(trimmed)) return trimmed;
+
+      return '';
+    }
+
+    // -------------------------
+    // Data loader
+    // -------------------------
     async function loadData() {
       const grid = document.getElementById('trespassGrid');
       try {
@@ -95,7 +201,7 @@
           throw new Error('No table data found in sheet');
         }
 
-        // Map rows -> objects (adjust indices to your columns)
+        // Map rows -> objects (adjust indices to your column order)
         const rows = payload.table.rows;
         const processed = rows.map(row => {
           const c = row.c || [];
@@ -108,7 +214,7 @@
             association: c[5]?.v ?? '',
             guardian: c[6]?.v ?? '',
             expiration: c[7]?.v ?? '',
-            image: c[8]?.v ?? '',
+            image: normalizeImageUrl(c[8]?.v ?? ''),     // <-- images supported here
             location: c[9]?.v ?? 'All District Property',
             contact: c[10]?.v ?? ''
           };
@@ -120,10 +226,10 @@
       } catch (err) {
         console.error('Error loading data:', err);
 
-        // Show a friendly note + sample data so the UI isn't blank
+        // Friendly note + sample data so UI isn't blank
         const fallback = [
-          { name: "Paul Stevens", id: "580541", status: "ACTIVE", dob: "6/25/2008", age: 15, association: "Former Staff", guardian: "Patricia Stevens", expiration: "n/a", location: "All BISD property", contact: "(409) 555-0123" },
-          { name: "Brina Jackson", id: "573404", status: "INACTIVE", dob: "2008-03-12", age: 17, association: "", guardian: "Maria Jackson", expiration: "2026-01-01", location: "All BISD property", contact: "(409) 555-0156" }
+          { name: "Paul Stevens", id: "580541", status: "ACTIVE", dob: "6/25/2008", age: 15, association: "Former Staff", guardian: "Patricia Stevens", expiration: "n/a", location: "All BISD property", contact: "(409) 555-0123", image: "" },
+          { name: "Brina Jackson", id: "573404", status: "INACTIVE", dob: "2008-03-12", age: 17, association: "", guardian: "Maria Jackson", expiration: "2026-01-01", location: "All BISD property", contact: "(409) 555-0156", image: "" }
         ];
         allData = fallback;
 
@@ -134,24 +240,53 @@
       }
     }
 
+    // -------------------------
+    // Render
+    // -------------------------
     function renderCards(data) {
       const grid = document.getElementById('trespassGrid');
       if (!data || data.length === 0) {
         grid.innerHTML = '<div style="grid-column:1 / -1; text-align:center; padding:40px;">No data available</div>';
         return;
       }
+
       grid.innerHTML = data.map(person => {
         const safe = encodeURIComponent(JSON.stringify(person));
+        const initials = (person.name || '')
+          .split(' ')
+          .filter(Boolean)
+          .slice(0, 2)
+          .map(s => s[0]?.toUpperCase())
+          .join('') || '—';
+
+        // Image tag (if present) + a built-in placeholder with initials
+        const imgTag = person.image
+          ? `<img class="avatar" src="${person.image}" alt="${person.name}" loading="lazy"
+                 onerror="this.onerror=null;this.replaceWith(this.nextElementSibling.cloneNode(true));" />`
+          : '';
+
+        const placeholder = `<div class="avatar avatar--placeholder">${initials}</div>`;
+
         return `
           <div class="trespass-card" onclick="showDetails('${safe}')">
-            <div class="card-name">${person.name}</div>
-            <div class="card-id">ID: ${person.id}</div>
-            <div class="card-status ${person.status === 'ACTIVE' ? 'status-active' : 'status-inactive'}">${person.status}</div>
+            <div class="card-top">
+              ${imgTag}${placeholder}
+              <div>
+                <div class="card-name">${person.name}</div>
+                <div class="card-id">ID: ${person.id}</div>
+              </div>
+            </div>
+            <div class="card-status ${person.status === 'ACTIVE' ? 'status-active' : 'status-inactive'}">
+              ${person.status}
+            </div>
           </div>
         `;
       }).join('');
     }
 
+    // -------------------------
+    // Details
+    // -------------------------
     function showDetails(personEncoded) {
       const person = JSON.parse(decodeURIComponent(personEncoded));
       alert(
@@ -166,9 +301,12 @@ Expiration: ${person.expiration}
 Location: ${person.location}`);
     }
 
+    // -------------------------
+    // Boot
+    // -------------------------
     document.addEventListener('DOMContentLoaded', () => {
       loadData();
-      // refresh every 30s
+      // Auto-refresh every 30 seconds
       setInterval(loadData, 30000);
     });
   </script>
