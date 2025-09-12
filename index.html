@@ -89,7 +89,7 @@
     }
     .avatar {
       width: 56px; height: 56px;
-      border-radius: 8px; /* use 50% for circle */
+      border-radius: 8px;
       object-fit: cover;
       background: #f3f4f6;
       display: block;
@@ -200,6 +200,11 @@
       return m ? m[1] : null;
     }
 
+    function looksLikeDriveId(str) {
+      // Many of your cells have only the ID (letters/numbers/_/- ~ 20-60 chars)
+      return typeof str === 'string' && /^[A-Za-z0-9_-]{15,}$/.test(str.trim());
+    }
+
     function fromImageFormula(str) {
       if (typeof str !== 'string') return null;
       const m = str.match(/^= *IMAGE\s*\(\s*"(https?:\/\/[^"]+)"\s*(?:,.*)?\)\s*$/i);
@@ -207,42 +212,60 @@
     }
 
     function extractUrlFromAnchorFormula(f) {
-      // Sometimes gviz puts HTML in the formatted string, e.g., <a href="...">text</a>
       if (typeof f !== 'string') return null;
       const m = f.match(/https?:\/\/[^"'>\s]+/i);
       return m ? m[0] : null;
     }
 
+    function toAbsoluteIfRelative(s) {
+      // If it starts with /uploads or uploads/, assume site-relative
+      if (typeof s !== 'string') return '';
+      if (/^\/?uploads/i.test(s)) {
+        const path = s.replace(/^\//,'');
+        return `${location.origin}/${path}`;
+      }
+      return s;
+    }
+
     // Accepts a full cell object (with v/f/p) or a string
     function normalizeImageCell(cell) {
       if (cell && typeof cell === 'object') {
-        // 1) If there's a formula (=IMAGE or hyperlink in f), use it
+        // 1) formula
         if (cell.f) {
           const imgFromFormula = fromImageFormula(cell.f);
           if (imgFromFormula) return toDisplayableUrl(imgFromFormula);
           const fromAnchor = extractUrlFromAnchorFormula(cell.f);
           if (fromAnchor) return toDisplayableUrl(fromAnchor);
         }
-        // 2) If v is a string, try that
+        // 2) raw value
         if (typeof cell.v === 'string' && cell.v.trim()) {
-          const fromImgV = fromImageFormula(cell.v);
-          return toDisplayableUrl(fromImgV || cell.v);
+          return toDisplayableUrl(cell.v);
         }
-        // 3) Sometimes hyperlink targets appear in p.link or p.href
+        // 3) hyperlink metadata
         const link = cell?.p?.link || cell?.p?.href;
         if (typeof link === 'string' && link) return toDisplayableUrl(link);
         return '';
       }
-      // Primitive string
-      if (typeof cell === 'string') return toDisplayableUrl(fromImageFormula(cell) || cell);
+      if (typeof cell === 'string') return toDisplayableUrl(cell);
       return '';
     }
 
     function toDisplayableUrl(val) {
       if (!val) return '';
-      const s = String(val).trim();
+      let s = String(val).trim();
+
+      // Bare Drive ID
+      if (looksLikeDriveId(s)) {
+        return `https://drive.google.com/uc?export=view&id=${s}`;
+      }
+
+      // Convert common Drive link shapes
       const driveId = extractDriveId(s);
       if (driveId) return `https://drive.google.com/uc?export=view&id=${driveId}`;
+
+      // Site-relative uploads
+      s = toAbsoluteIfRelative(s);
+
       if (/^https?:\/\/.+/i.test(s)) return s;
       return '';
     }
@@ -253,28 +276,24 @@
     function fmtDate(value) {
       if (value == null || value === '') return '';
 
-      // gviz often returns "Date(YYYY,MM,DD)" with 0-based month
       if (typeof value === 'string' && /^Date\(\d{4},\d{1,2},\d{1,2}\)$/.test(value)) {
         const m = value.match(/^Date\((\d{4}),(\d{1,2}),(\d{1,2})\)$/);
         const y = Number(m[1]); const mo0 = Number(m[2]); const d = Number(m[3]);
         return mmddyyyy(new Date(y, mo0, d));
       }
 
-      // Numeric Google serial date
       if (!isNaN(value)) {
         const serial = Number(value);
-        const epoch = new Date(Date.UTC(1899, 11, 30)); // Sheets origin
+        const epoch = new Date(Date.UTC(1899, 11, 30));
         const d = new Date(epoch.getTime() + serial * 86400000);
         return mmddyyyy(d);
       }
 
       const s = String(value).trim();
 
-      // YYYY,MM,DD or YYYY-MM-DD or YYYY/MM/DD
       let m = s.match(/^(\d{4})[,\-\/](\d{1,2})[,\-\/](\d{1,2})$/);
       if (m) return mmddyyyy(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
 
-      // MM/DD/YYYY or M/D/YY(YY)
       m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
       if (m) {
         let y = Number(m[3]);
@@ -282,11 +301,10 @@
         return mmddyyyy(new Date(y, Number(m[1]) - 1, Number(m[2])));
       }
 
-      // Fallback: Date.parse
       const d2 = new Date(s);
       if (!isNaN(d2)) return mmddyyyy(d2);
 
-      return s; // leave as-is if unparsable
+      return s;
     }
 
     function statusKey(raw) {
@@ -305,7 +323,6 @@
         .join('') || '—';
     }
 
-    // For image error: replace with a placeholder (keeps exactly one visual)
     function imgFallback(el, initials) {
       const ph = document.createElement('div');
       ph.className = 'avatar avatar--placeholder';
@@ -345,7 +362,7 @@
             contact: val(10),
             current_school: val(11),
             picture: normalizeImageCell(c[12]),
-            guardian_phone: (c[13]?.v ?? '') // new header
+            guardian_phone: (c[13]?.v ?? '')
           };
         });
 
@@ -363,7 +380,7 @@
     // ========= Filters =========
     function applyFilters() {
       const q = document.getElementById('searchInput').value.trim().toLowerCase();
-      const statusFilter = document.getElementById('statusSelect').value; // ALL | ACTIVE | INACTIVE
+      const statusFilter = document.getElementById('statusSelect').value;
 
       currentFiltered = allData.filter(p => {
         const statusOK = (statusFilter === 'ALL') ? true : statusKey(p.status) === statusFilter;
@@ -390,7 +407,7 @@
       grid.innerHTML = data.map(person => {
         const safe = encodeURIComponent(JSON.stringify(person));
 
-        // choose one image source
+        // ONE image: Image (I) → Picture (M) → placeholder
         const imgSrc = person.image || person.picture || '';
         const initials = initialsFrom(person.name);
         const avatarHtml = imgSrc
@@ -447,7 +464,7 @@
 
       body.innerHTML = `
         <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
-          ${primaryImg ? `<img class="avatar" src="${primaryImg}" alt="${p.name}" style="width:72px;height:72px; object-fit:cover;" onerror="this.style.display='none';">` : ''}
+          ${primaryImg ? `<img class="avatar" src="${primaryImg}" alt="${p.name}" style="width:120px;height:120px; object-fit:cover; border-radius:12px;" onerror="this.style.display='none';">` : ''}
         </div>
         ${rows.map(([k,v]) => `
           <div class="detail-row">
@@ -478,7 +495,7 @@
       });
 
       loadData();
-      setInterval(loadData, 60000); // optional refresh
+      setInterval(loadData, 60000);
     });
   </script>
 </body>
