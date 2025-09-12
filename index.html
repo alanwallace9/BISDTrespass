@@ -15,7 +15,7 @@
       margin: 0;
     }
     .container {
-      max-width: 520px;
+      max-width: 520px;              /* keeps it tidy on desktop too */
       margin: 0 auto;
       background: var(--brand);
       border-radius: 25px;
@@ -63,10 +63,11 @@
     /* Grid & cards */
     .trespass-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr;     /* 2 columns by default (mobile too) */
       gap: 12px;
     }
-    @media (max-width: 460px) { .trespass-grid { grid-template-columns: 1fr; } }
+    /* Only drop to 1 column on ultra-narrow screens */
+    @media (max-width: 340px) { .trespass-grid { grid-template-columns: 1fr; } }
 
     .trespass-card {
       background: white;
@@ -244,21 +245,17 @@
       if (!val) return '';
       let s = String(val).trim();
 
-      // Bare Drive ID or a /file/d/<ID>/ link
+      // Bare Drive ID or /file/d/<ID>/ link
       const id = looksLikeDriveId(s) ? s : extractDriveId(s);
-      if (id) {
-        // Return the first candidate; others are stored as fallbacks on the <img>
-        return `gdrive:${id}`;
-      }
+      if (id) return `gdrive:${id}`;
 
-      // Site-relative uploads => make absolute
+      // Site-relative uploads
       s = toAbsoluteIfRelative(s);
 
       if (/^https?:\/\/.+/i.test(s)) return s;
       return '';
     }
 
-    // given a Drive ID, return preferred + fallback urls
     function driveUrls(id) {
       return [
         `https://drive.google.com/thumbnail?id=${id}&sz=w1200`,
@@ -267,14 +264,12 @@
         `https://lh3.googleusercontent.com/d/${id}=w1200`
       ];
     }
-
-    // Parse a "displayable" url, and if it's gdrive:<id>, expand to first URL
     function expandIfDrive(url) {
       if (url.startsWith('gdrive:')) {
         const id = url.slice(7);
-        const [first] = driveUrls(id);
-        return { src: first, fallbacks: driveUrls(id).slice(1) };
-      }
+        const [first, ...rest] = driveUrls(id);
+        return { src: first, fallbacks: rest };
+        }
       return { src: url, fallbacks: [] };
     }
 
@@ -317,14 +312,12 @@
     function imgFallbackToNext(el, initials) {
       const list = (el.dataset.fallbacks || '').split('|').filter(Boolean);
       if (list.length === 0) {
-        // no more: swap to placeholder
         const ph = document.createElement('div');
         ph.className = 'avatar avatar--placeholder';
         ph.textContent = initials || '—';
         el.replaceWith(ph);
         return;
       }
-      // try the next fallback
       const next = list.shift();
       el.dataset.fallbacks = list.join('|');
       el.src = next;
@@ -457,14 +450,11 @@
       const imgCandidate = p.image || p.picture || '';
       let imgHTML = '';
       if (imgCandidate) {
-        let imgInfo = { src: '', fallbacks: [] };
-        if (imgCandidate.startsWith('gdrive:')) {
-          imgInfo = expandIfDrive(imgCandidate);
-        } else {
-          imgInfo = { src: imgCandidate, fallbacks: [] };
-        }
+        let imgInfo = imgCandidate.startsWith('gdrive:')
+          ? expandIfDrive(imgCandidate)
+          : { src: imgCandidate, fallbacks: [] };
         imgHTML = `<img class="avatar" src="${imgInfo.src}" alt="${p.name}"
-                      style="width:120px;height:120px; object-fit:cover; border-radius:12px;"
+                      style="width:240px;height:240px; object-fit:cover; border-radius:12px;"
                       referrerpolicy="no-referrer"
                       data-fallbacks="${imgInfo.fallbacks.join('|')}"
                       onerror="imgFallbackToNext(this, '${initialsFrom(p.name)}')" />`;
@@ -523,3 +513,4 @@
   </script>
 </body>
 </html>
+
