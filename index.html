@@ -161,19 +161,11 @@
     let currentFiltered = [];
 
     // -------------------------
-    // Column helpers (auto-detect by header labels)
-    // -------------------------
-    function idxFor(cols, names, fallback) {
-      const want = names.map(s => s.toLowerCase());
-      const i = cols.findIndex(c => (c.label || '').toLowerCase().trim() && want.includes(c.label.toLowerCase().trim()));
-      return i >= 0 ? i : fallback;
-    }
-
-    // -------------------------
     // Image helpers
     // -------------------------
     function extractDriveId(url) {
       if (!url) return null;
+      // handle /file/d/<id>/view, ?id=<id>, /uc?export=view&id=<id>
       const m =
         url.match(/\/file\/d\/([^/]+)/) ||
         url.match(/[?&]id=([^&]+)/) ||
@@ -181,45 +173,33 @@
       return m ? m[1] : null;
     }
 
-    function fromImageFormula(str) {
+    function fromImageFormula(cell) {
       // Extract URL from =IMAGE("https://...") or =IMAGE("...";2;...)
-      if (typeof str !== 'string') return null;
-      const m = str.match(/^= *IMAGE\s*\(\s*"(https?:\/\/[^"]+)"\s*(?:,.*)?\)\s*$/i);
+      if (typeof cell !== 'string') return null;
+      const m = cell.match(/^= *IMAGE\s*\(\s*"(https?:\/\/[^"]+)"\s*(?:,.*)?\)\s*$/i);
       return m ? m[1] : null;
     }
 
-    // Accept a **cell object** (may have v and/or f) or a plain string
-    function normalizeImageCell(cell) {
-      let val = '';
-      if (cell && typeof cell === 'object') {
-        if (typeof cell.f === 'string') val = cell.f;
-        else if (typeof cell.v === 'string') val = cell.v;
-        else return '';
-      } else if (typeof cell === 'string') {
-        val = cell;
-      } else {
-        return '';
-      }
-
-      // If it's an =IMAGE("...") formula, pull inner URL
+    function normalizeImageUrl(val) {
+      if (!val) return '';
+      // If the cell is =IMAGE("..."), pull out the inner URL:
       const fromImg = fromImageFormula(val);
       if (fromImg) val = fromImg;
 
+      if (typeof val !== 'string') return '';
       const trimmed = val.trim();
-      const driveId = extractDriveId(trimmed);
-      if (driveId) return `https://drive.google.com/uc?export=view&id=${driveId}`;
-      if (/^https?:\/\/.+/i.test(trimmed)) return trimmed;
-      return '';
-    }
 
-    // -------------------------
-    // Status normalizer (handles "Inactive (HEBISD)" etc.)
-    // -------------------------
-    function normalizeStatus(raw) {
-      const t = (raw ?? '').toString().toLowerCase();
-      if (t.includes('inactive')) return 'INACTIVE';
-      if (t.includes('active')) return 'ACTIVE';
-      return 'ACTIVE'; // default
+      // Convert Google Drive share links to direct-view
+      const driveId = extractDriveId(trimmed);
+      if (driveId) {
+        // You can also use thumbnail with size: https://drive.google.com/thumbnail?id=<id>&sz=w200
+        return `https://drive.google.com/uc?export=view&id=${driveId}`;
+      }
+
+      // Accept direct http(s) image URLs
+      if (/^https?:\/\/.+/i.test(trimmed)) return trimmed;
+
+      return '';
     }
 
     // -------------------------
@@ -229,7 +209,11 @@
       const grid = document.getElementById('trespassGrid');
       try {
         const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-        const params = new URLSearchParams({ tqx: 'out:json', tq: 'select *', gid: GID });
+        const params = new URLSearchParams({
+          tqx: 'out:json',
+          tq: 'select *',
+          gid: GID
+        });
         const url = `${base}?${params.toString()}`;
 
         const response = await fetch(url, { cache: 'no-store' });
@@ -240,43 +224,26 @@
         if (!match) throw new Error('Unexpected response format from Google Sheets');
         const payload = JSON.parse(match[1]);
 
-        if (!payload.table || !payload.table.rows) throw new Error('No table data found in sheet');
+        if (!payload.table || !payload.table.rows) {
+          throw new Error('No table data found in sheet');
+        }
 
-        const cols = payload.table.cols || [];
-
-        // Try to detect indices by label; fall back to original guesses
-        const idx = {
-          id:          idxFor(cols, ['id','student id','sid'], 0),
-          name:        idxFor(cols, ['name','student','full name'], 1),
-          status:      idxFor(cols, ['status'], 2),
-          dob:         idxFor(cols, ['dob','date of birth'], 3),
-          age:         idxFor(cols, ['age'], 4),
-          association: idxFor(cols, ['association','notes','group'], 5),
-          guardian:    idxFor(cols, ['guardian','parent','contact name'], 6),
-          expiration:  idxFor(cols, ['expiration','expires','end date'], 7),
-          image:       idxFor(cols, ['image','photo','picture','img'], 8),
-          location:    idxFor(cols, ['location','area','place'], 9),
-          contact:     idxFor(cols, ['contact','phone','phone number'], 10),
-        };
-
+        // Map rows -> objects (fixed indices)
         const rows = payload.table.rows;
         const processed = rows.map(row => {
           const c = row.c || [];
-          const get = (i) => (i != null && c[i]) ? (c[i].v ?? c[i].f ?? '') : '';
-
           return {
-            id: get(idx.id),
-            name: get(idx.name),
-            status: normalizeStatus(get(idx.status)),
-            status_raw: get(idx.status),
-            dob: get(idx.dob),
-            age: get(idx.age),
-            association: get(idx.association),
-            guardian: get(idx.guardian),
-            expiration: get(idx.expiration),
-            image: normalizeImageCell(c[idx.image] ?? ''),   // <-- robust image parsing
-            location: get(idx.location) || 'All District Property',
-            contact: get(idx.contact)
+            id: c[0]?.v ?? '',
+            name: c[1]?.v ?? '',
+            status: (c[2]?.v ?? 'ACTIVE').toString().toUpperCase(),
+            dob: c[3]?.v ?? '',
+            age: c[4]?.v ?? '',
+            association: c[5]?.v ?? '',
+            guardian: c[6]?.v ?? '',
+            expiration: c[7]?.v ?? '',
+            image: normalizeImageUrl(c[8]?.v ?? ''), // <-- images supported here
+            location: c[9]?.v ?? 'All District Property',
+            contact: c[10]?.v ?? ''
           };
         }).filter(r => r.name);
 
@@ -285,11 +252,13 @@
       } catch (err) {
         console.error('Error loading data:', err);
 
+        // Friendly note + sample data so UI isn't blank
         const fallback = [
           { name: "Paul Stevens", id: "580541", status: "ACTIVE", dob: "6/25/2008", age: 15, association: "Former Staff", guardian: "Patricia Stevens", expiration: "n/a", location: "All BISD property", contact: "(409) 555-0123", image: "" },
           { name: "Brina Jackson", id: "573404", status: "INACTIVE", dob: "2008-03-12", age: 17, association: "", guardian: "Maria Jackson", expiration: "2026-01-01", location: "All BISD property", contact: "(409) 555-0156", image: "" }
         ];
         allData = fallback;
+
         grid.insertAdjacentHTML('afterbegin',
           `<div class="note">⚠️ Using sample data — could not load Google Sheet. Check “Publish to web”, sheet ID, and gid.</div>`
         );
@@ -309,9 +278,9 @@
         if (!statusOk) return false;
 
         if (!q) return true;
-        const hay = [p.name, p.id, p.association, p.guardian, p.location, p.contact, p.status_raw]
-          .join(' ')
-          .toLowerCase();
+        const hay = [
+          p.name, p.id, p.association, p.guardian, p.location, p.contact
+        ].join(' ').toLowerCase();
         return hay.includes(q);
       });
 
@@ -322,7 +291,10 @@
     // lightweight debounce for search input
     function debounce(fn, ms = 200) {
       let t;
-      return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), ms);
+      };
     }
 
     // -------------------------
@@ -357,9 +329,9 @@
             <div class="card-top">
               ${imgTag}${placeholder}
               <div>
-                <div class="card-name">${person.status === 'ACTIVE' ? 'Active' : 'Inactive'}${person.status_raw && person.status_raw !== person.status ? ' ('+person.status_raw+')' : ''}</div>
-                <div class="card-id">ID: ${person.name}</div>
-                <div class="card-sub">${person.id ? person.id : '&nbsp;'}</div>
+                <div class="card-name">${person.name}</div>
+                <div class="card-id">ID: ${person.id}</div>
+                <div class="card-sub">${person.association || '&nbsp;'}</div>
               </div>
             </div>
             <div class="card-status ${person.status === 'ACTIVE' ? 'status-active' : 'status-inactive'}">
@@ -378,7 +350,7 @@
       alert(
 `Name: ${person.name}
 ID: ${person.id}
-Status: ${person.status}${person.status_raw && person.status_raw !== person.status ? ' ('+person.status_raw+')' : ''}
+Status: ${person.status}
 DOB: ${person.dob}
 Age: ${person.age}
 Association: ${person.association}
@@ -398,7 +370,8 @@ Location: ${person.location}`);
       statusSelect.addEventListener('change', applyFilters);
 
       loadData();
-      setInterval(loadData, 60000); // refresh every 60s
+      // Auto-refresh every 60s (keeps filters intact)
+      setInterval(loadData, 60000);
     });
   </script>
 </body>
