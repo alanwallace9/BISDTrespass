@@ -199,57 +199,90 @@
         url.match(/\/uc\?(?:export=[^&]*&)?id=([^&]+)/);
       return m ? m[1] : null;
     }
-    function fromImageFormula(cellStr) {
-      if (typeof cellStr !== 'string') return null;
-      const m = cellStr.match(/^= *IMAGE\s*\(\s*"(https?:\/\/[^"]+)"\s*(?:,.*)?\)\s*$/i);
+
+    function fromImageFormula(str) {
+      if (typeof str !== 'string') return null;
+      const m = str.match(/^= *IMAGE\s*\(\s*"(https?:\/\/[^"]+)"\s*(?:,.*)?\)\s*$/i);
       return m ? m[1] : null;
     }
-    function normalizeImageUrl(val) {
+
+    function extractUrlFromAnchorFormula(f) {
+      // Sometimes gviz puts HTML in the formatted string, e.g., <a href="...">text</a>
+      if (typeof f !== 'string') return null;
+      const m = f.match(/https?:\/\/[^"'>\s]+/i);
+      return m ? m[0] : null;
+    }
+
+    // Accepts a full cell object (with v/f/p) or a string
+    function normalizeImageCell(cell) {
+      if (cell && typeof cell === 'object') {
+        // 1) If there's a formula (=IMAGE or hyperlink in f), use it
+        if (cell.f) {
+          const imgFromFormula = fromImageFormula(cell.f);
+          if (imgFromFormula) return toDisplayableUrl(imgFromFormula);
+          const fromAnchor = extractUrlFromAnchorFormula(cell.f);
+          if (fromAnchor) return toDisplayableUrl(fromAnchor);
+        }
+        // 2) If v is a string, try that
+        if (typeof cell.v === 'string' && cell.v.trim()) {
+          const fromImgV = fromImageFormula(cell.v);
+          return toDisplayableUrl(fromImgV || cell.v);
+        }
+        // 3) Sometimes hyperlink targets appear in p.link or p.href
+        const link = cell?.p?.link || cell?.p?.href;
+        if (typeof link === 'string' && link) return toDisplayableUrl(link);
+        return '';
+      }
+      // Primitive string
+      if (typeof cell === 'string') return toDisplayableUrl(fromImageFormula(cell) || cell);
+      return '';
+    }
+
+    function toDisplayableUrl(val) {
       if (!val) return '';
-      const fromImg = fromImageFormula(val);
-      if (fromImg) val = fromImg;
-      if (typeof val !== 'string') return '';
-      const trimmed = val.trim();
-      const driveId = extractDriveId(trimmed);
+      const s = String(val).trim();
+      const driveId = extractDriveId(s);
       if (driveId) return `https://drive.google.com/uc?export=view&id=${driveId}`;
-      if (/^https?:\/\/.+/i.test(trimmed)) return trimmed;
+      if (/^https?:\/\/.+/i.test(s)) return s;
       return '';
     }
 
     function pad2(n){ return String(n).padStart(2,'0'); }
-    function mmddyyyy(d){
-      return `${pad2(d.getMonth()+1)}/${pad2(d.getDate())}/${d.getFullYear()}`;
-    }
+    function mmddyyyy(d){ return `${pad2(d.getMonth()+1)}/${pad2(d.getDate())}/${d.getFullYear()}`; }
+
     function fmtDate(value) {
       if (value == null || value === '') return '';
-      // Numeric (Google serial)
+
+      // gviz often returns "Date(YYYY,MM,DD)" with 0-based month
+      if (typeof value === 'string' && /^Date\(\d{4},\d{1,2},\d{1,2}\)$/.test(value)) {
+        const m = value.match(/^Date\((\d{4}),(\d{1,2}),(\d{1,2})\)$/);
+        const y = Number(m[1]); const mo0 = Number(m[2]); const d = Number(m[3]);
+        return mmddyyyy(new Date(y, mo0, d));
+      }
+
+      // Numeric Google serial date
       if (!isNaN(value)) {
         const serial = Number(value);
         const epoch = new Date(Date.UTC(1899, 11, 30)); // Sheets origin
-        const ms = serial * 86400000;
-        const d = new Date(epoch.getTime() + ms);
+        const d = new Date(epoch.getTime() + serial * 86400000);
         return mmddyyyy(d);
       }
+
       const s = String(value).trim();
 
       // YYYY,MM,DD or YYYY-MM-DD or YYYY/MM/DD
       let m = s.match(/^(\d{4})[,\-\/](\d{1,2})[,\-\/](\d{1,2})$/);
-      if (m) {
-        const y = Number(m[1]), mo = Number(m[2])-1, da = Number(m[3]);
-        const d = new Date(y, mo, da);
-        return mmddyyyy(d);
-      }
+      if (m) return mmddyyyy(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
 
       // MM/DD/YYYY or M/D/YY(YY)
       m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
       if (m) {
         let y = Number(m[3]);
         if (y < 100) y += 2000;
-        const d = new Date(y, Number(m[1])-1, Number(m[2]));
-        return mmddyyyy(d);
+        return mmddyyyy(new Date(y, Number(m[1]) - 1, Number(m[2])));
       }
 
-      // Fallback to Date()
+      // Fallback: Date.parse
       const d2 = new Date(s);
       if (!isNaN(d2)) return mmddyyyy(d2);
 
@@ -272,6 +305,14 @@
         .join('') || '—';
     }
 
+    // For image error: replace with a placeholder (keeps exactly one visual)
+    function imgFallback(el, initials) {
+      const ph = document.createElement('div');
+      ph.className = 'avatar avatar--placeholder';
+      ph.textContent = initials || '—';
+      el.replaceWith(ph);
+    }
+
     // ========= Data loader =========
     async function loadData() {
       const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
@@ -286,7 +327,6 @@
         const payload = JSON.parse(match[1]);
         const rows = (payload.table && payload.table.rows) ? payload.table.rows : [];
 
-        // Fixed indices per your header order (see top)
         const processed = rows.map(r => {
           const c = r.c || [];
           const val = i => (c[i]?.v ?? '');
@@ -300,17 +340,16 @@
             association: val(5),
             guardian: val(6),
             warning_expires: val(7),
-            image: normalizeImageUrl(c[8]?.v ?? ''),
+            image: normalizeImageCell(c[8]),
             trespassed_from: val(9),
             contact: val(10),
             current_school: val(11),
-            picture: normalizeImageUrl(c[12]?.v ?? ''),
-            guardian_contact: (c[13]?.v ?? '')  // optional new column; fine if blank
+            picture: normalizeImageCell(c[12]),
+            guardian_phone: (c[13]?.v ?? '') // new header
           };
         });
 
-        // Drop just the obvious header row if it sneaks in,
-        // keep rows even if they have missing fields.
+        // keep all rows except the literal header row
         allData = processed.filter(row => !(String(row.id).toLowerCase()==='id' && String(row.name).toLowerCase()==='name'));
 
         applyFilters();
@@ -351,14 +390,14 @@
       grid.innerHTML = data.map(person => {
         const safe = encodeURIComponent(JSON.stringify(person));
 
-        // ONE visual avatar: use Image (col I) OR fallback to Picture (col M); else show initials placeholder
+        // choose one image source
         const imgSrc = person.image || person.picture || '';
+        const initials = initialsFrom(person.name);
         const avatarHtml = imgSrc
           ? `<img class="avatar" src="${imgSrc}" alt="${person.name}" loading="lazy"
                  referrerpolicy="no-referrer"
-                 onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';" />
-             <div class="avatar--placeholder" style="display:none;">${initialsFrom(person.name)}</div>`
-          : `<div class="avatar--placeholder">${initialsFrom(person.name)}</div>`;
+                 onerror="imgFallback(this, '${initials}')" />`
+          : `<div class="avatar avatar--placeholder">${initials}</div>`;
 
         const status = statusKey(person.status);
         const badgeClass = status === 'ACTIVE' ? 'badge-active' : 'badge-inactive';
@@ -399,7 +438,7 @@
         ['Age', p.age],
         ['Association', p.association],
         ['Guardian', p.guardian],
-        ['Guardian Contact', p.guardian_contact || ''],      // new field
+        ['Guardian Phone', p.guardian_phone || ''],
         ['Warning Expires', fmtDate(p.warning_expires)],
         ['Trespassed From', p.trespassed_from],
         ['Contact', p.contact],
@@ -408,7 +447,7 @@
 
       body.innerHTML = `
         <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
-          ${primaryImg ? `<img class="avatar" src="${primaryImg}" alt="${p.name}" style="width:72px;height:72px; object-fit:cover;">` : ''}
+          ${primaryImg ? `<img class="avatar" src="${primaryImg}" alt="${p.name}" style="width:72px;height:72px; object-fit:cover;" onerror="this.style.display='none';">` : ''}
         </div>
         ${rows.map(([k,v]) => `
           <div class="detail-row">
@@ -439,8 +478,7 @@
       });
 
       loadData();
-      // optional: refresh periodically
-      setInterval(loadData, 60000);
+      setInterval(loadData, 60000); // optional refresh
     });
   </script>
 </body>
